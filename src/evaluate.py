@@ -107,6 +107,10 @@ def save_cluster_scatter(X, labels, centroids, path, title="Clusters (PCA projec
         pca = PCA(n_components=2, random_state=0).fit(X)
         P, Cc = pca.transform(X), pca.transform(centroids)
         xl, yl = "PC1", "PC2"
+    elif X.shape[1] == 1:
+        P = np.column_stack([X[:, 0], np.zeros(len(X))])
+        Cc = np.column_stack([centroids[:, 0], np.zeros(len(centroids))])
+        xl, yl = "feature 1", ""
     else:
         P, Cc, xl, yl = X, centroids, "feature 1", "feature 2"
 
@@ -124,7 +128,8 @@ def save_cluster_scatter(X, labels, centroids, path, title="Clusters (PCA projec
 
 
 def save_confusion_matrix(y_true, y_pred, path, class_names=None):
-    cm = skm.confusion_matrix(y_true, y_pred)
+    labels = range(len(class_names)) if class_names is not None else None
+    cm = skm.confusion_matrix(y_true, y_pred, labels=labels)
     fig, ax = plt.subplots(figsize=(5.2, 4.4))
     im = ax.imshow(cm, cmap="Blues")
     ax.set_xlabel("predicted (cluster -> majority class)")

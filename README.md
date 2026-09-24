@@ -122,6 +122,21 @@ data:
   target: attack_cat
 ```
 
+CSV targets may contain numeric or string labels and multiple classes; the loader
+encodes them for evaluation. Missing target labels must be cleaned first. At least
+three finite rows and one non-constant numeric feature must remain after cleaning.
+The subsample cap must accommodate every class. Set the k-sweep below the number
+of usable rows so silhouette scores are defined.
+
+The grading harness reads `metrics.json` from `output.dir` in `config.yaml`.
+If you change that directory, also add it to `.gitignore`. Grading rejects
+non-numeric, non-finite, or out-of-range metrics; silhouette and adjusted Rand
+scores may legitimately be negative.
+
+On a fresh template, `make grade` flags the unimplemented student algorithms and
+`implementation: sklearn`. These are expected assignment-completion checks, not
+setup failures. Five algorithm tests skip until the student fills in the stubs.
+
 ## A discussion prompt, free of charge
 
 On standardized Iris the silhouette peaks at **k = 2**, but there are **3** true

@@ -47,6 +47,8 @@ def load_data(cfg: dict):
                 f"available: {list(df.columns)[:15]}..."
             )
 
+        if df[target].isna().any():
+            raise ValueError("CSV target contains missing labels; clean them before evaluation.")
         labels = df[target].astype("category")
         y = labels.cat.codes.to_numpy().astype("int64")
         class_names = list(labels.cat.categories)
@@ -58,6 +60,14 @@ def load_data(cfg: dict):
     else:
         raise ValueError(f"unknown data.source {source!r} (expected 'iris' or 'csv')")
 
+    if X.shape[1] == 0:
+        raise ValueError("Dataset must contain at least one numeric feature.")
+    # Remove invalid feature rows before sampling so they cannot consume the cap.
+    finite = np.isfinite(X).all(axis=1)
+    X, y = X[finite], y[finite]
+    if len(X) < 3:
+        raise ValueError("Dataset must contain at least three finite rows for clustering evaluation.")
+
     # Optional subsample — a from-scratch K-means is fine on thousands of rows,
     # not millions. Stratified by label so every class stays represented.
     cap = d.get("subsample")
@@ -66,12 +76,13 @@ def load_data(cfg: dict):
         idx = _stratified_sample(y, cap, rng)
         X, y = X[idx], y[idx]
 
-    # Drop non-finite rows and zero-variance columns (they break standardization).
-    finite = np.isfinite(X).all(axis=1)
-    X, y = X[finite], y[finite]
+    # Drop zero-variance columns (they break standardization).
     keep = X.std(axis=0) > 0
     X = X[:, keep]
     feature_names = [f for f, k in zip(feature_names, keep) if k]
+
+    if X.shape[1] == 0:
+        raise ValueError("Dataset must contain at least one non-constant numeric feature.")
 
     if d.get("standardize", True):
         X = (X - X.mean(axis=0)) / X.std(axis=0)
@@ -82,6 +93,8 @@ def load_data(cfg: dict):
 def _stratified_sample(y: np.ndarray, cap: int, rng) -> np.ndarray:
     """Indices of a roughly class-balanced subsample of size <= cap."""
     classes = np.unique(y)
+    if type(cap) is not int or cap < max(3, len(classes)):
+        raise ValueError("data.subsample must allow at least three rows and one per class.")
     per = max(1, cap // len(classes))
     picks = []
     for c in classes:

@@ -6,12 +6,13 @@ grading/auto_report.json. The agent reads that file, adds qualitative judgment
 (discussion quality, correctness, code quality), and produces the final grade
 per grading/AGENT_GRADING.md.
 
-Stdlib only. Run from the repo root:  python grading/grade.py
+Requires PyYAML (included in requirements.txt). Run from the repo root:  python grading/grade.py
 """
 from __future__ import annotations
 
 import ast
 import json
+import math
 import re
 import subprocess
 import sys
@@ -75,13 +76,23 @@ def check_reproduce():
 
 
 def _metrics():
-    p = ROOT / "results" / "metrics.json"
-    if not p.exists():
-        return None, "results/metrics.json not found"
     try:
-        return json.loads(p.read_text()), None
+        import yaml
+        cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
+        output_dir = cfg["output"]["dir"]
+        if not isinstance(output_dir, str) or not output_dir.strip():
+            raise ValueError("output.dir must be a non-empty path string")
+        p = ROOT / output_dir / "metrics.json"
+        m = json.loads(p.read_text())
+        if not isinstance(m, dict):
+            raise ValueError("metrics.json must contain a JSON object")
+        return m, None
     except Exception as e:
-        return None, f"invalid JSON: {e}"
+        return None, f"cannot read configured metrics: {e}"
+
+
+def _number(value):
+    return type(value) in (int, float) and math.isfinite(value)
 
 
 def check_metrics():
@@ -89,13 +100,26 @@ def check_metrics():
     if m is None:
         return {"id": "metrics_present", "status": "fail", "evidence": err}
     missing = METRIC_KEYS - set(m)
-    bad = {k: v for k, v in m.items()
-           if k in UNIT_INTERVAL and isinstance(v, (int, float)) and not (-1 <= v <= 1)}
+    bad = {}
+    for k in (METRIC_KEYS | UNIT_INTERVAL | {"adjusted_rand"}) & m.keys():
+        v = m[k]
+        valid = _number(v)
+        if valid:
+            if k == "k":
+                valid = type(v) is int and v >= 1
+            elif k == "inertia":
+                valid = v >= 0
+            elif k in {"silhouette", "adjusted_rand"}:
+                valid = -1 <= v <= 1
+            else:
+                valid = 0 <= v <= 1
+        if not valid:
+            bad[k] = repr(v)
     ok = not missing and not bad
     head = {k: m[k] for k in sorted(METRIC_KEYS & set(m))}
     return {"id": "metrics_present", "status": "pass" if ok else "fail",
             "evidence": {"metrics": head, "missing_keys": sorted(missing),
-                         "out_of_range": bad}}
+                         "invalid_values": bad}}
 
 
 def _scratch_class():
@@ -172,12 +196,12 @@ def check_reference_agreement():
     if m is None:
         return {"id": "reference_agreement", "status": "review", "evidence": err}
     rc = m.get("reference_check")
-    if not rc:
+    if not isinstance(rc, dict) or not rc:
         return {"id": "reference_agreement", "status": "review",
                 "evidence": "no reference_check in metrics.json "
                             "(set compare_to_reference: true to record one)"}
     ratio, ari = rc.get("inertia_ratio"), rc.get("ari_vs_reference")
-    ok = (ratio is not None and ratio <= 1.10) or (ari is not None and ari >= 0.80)
+    ok = (_number(ratio) and 0 <= ratio <= 1.10) or (_number(ari) and 0.80 <= ari <= 1)
     return {"id": "reference_agreement", "status": "pass" if ok else "review",
             "evidence": rc}
 
