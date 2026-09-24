@@ -1,12 +1,22 @@
 # Data
 
-**Do not commit datasets.** This directory is git-ignored (except this file).
+**Do not commit large datasets.** This directory is git-ignored except its documentation and the instructor-provided small Iris dataset in `iris/`.
 
 ## Default: Iris (no download needed)
 
 `config.yaml` ships with `data.source: iris`, which loads the Iris dataset
 bundled with scikit-learn. Use it to debug your from-scratch implementation:
 150 points, 4 features, 3 well-understood classes.
+
+## Instructor-provided Iris files
+
+The course Google Drive copy is included in [`iris/`](iris/README.md), both in its original form and as a CSV with headers. Run it with:
+
+```bash
+.venv/bin/python -m src.cluster --config configs/iris-local.yaml
+```
+
+This copy has historical differences at two records compared with scikit-learn's bundled version; see `iris/README.md`. The default configuration is unchanged.
 
 ## Project dataset: UNSW-NB15
 

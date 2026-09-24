@@ -27,6 +27,13 @@ download) and writes to `results/`: `metrics.json`, `k_selection.png`,
 
 ---
 
+The instructor's Google Drive Iris copy is also included in [`data/iris/`](data/iris/README.md).
+To use those files after setup, run:
+
+```bash
+.venv/bin/python -m src.cluster --config configs/iris-local.yaml
+```
+
 ## ⚠️ What you have to write
 
 The template ships with **two** implementations in `src/kmeans.py`:
