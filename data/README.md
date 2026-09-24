@@ -22,11 +22,12 @@ This copy has historical differences at two records compared with scikit-learn's
 
 The deliverable uses a realistic network-traffic dataset.
 
-1. Download from the **UNSW Canberra** project page:
-   <https://research.unsw.edu.au/projects/unsw-nb15-dataset>
-2. Use the **partitioned CSVs** — `UNSW_NB15_training-set.csv` and
-   `UNSW_NB15_testing-set.csv` (~42 features; 1 normal + 9 attack categories).
-3. Place them in this directory (they stay untracked).
+1. Download the [instructor-provided dataset archive from Google Drive](https://drive.google.com/file/d/1jDsXYALnEsLzYYGCEtxgkAYygS-vKIt7/view?usp=sharing)
+   (about 20.6 GB).
+2. Extract the **partitioned training CSV**, `UNSW_NB15_training-set.csv`,
+   from the archive. Use the training CSV for the primary experiment, not raw
+   packet captures or the full collection of CSVs.
+3. Place it at `data/UNSW_NB15_training-set.csv` (it stays untracked).
 4. Point `config.yaml` at the file:
 
 ```yaml
@@ -54,12 +55,15 @@ Moustafa, N., & Slay, J. (2015). *UNSW-NB15: A Comprehensive Data Set for Networ
 Intrusion Detection Systems.* Military Communications and Information Systems
 Conference (MilCIS), IEEE.
 
-## Reproducible UNSW-NB15 acquisition
+## Optional mirror fallback and checksum
 
-After `make setup`, run `make data`. This uses the public CSV mirror at
+Use the Google Drive archive above as the primary course download. If it is
+unavailable, `make data` downloads the partitioned training CSV from this
+optional public mirror (after `make setup`):
 https://github.com/Nir-J/ML-Projects/blob/master/UNSW-Network_Packet_Classification/UNSW_NB15_training-set.csv
-because the official UNSW download can redirect to Microsoft sign-in. The mirror
-is not publisher-authenticated; the checksum below identifies the tested course
+The original dataset source is
+https://research.unsw.edu.au/projects/unsw-nb15-dataset.
+The mirror is not publisher-authenticated; this checksum identifies the tested
 copy (175,341 rows, 45 columns including ID and labels):
 
 ```
@@ -67,9 +71,9 @@ bec7dd5ec88dc2a0ccc7a07879d338395ed7421750f675fd0339e07dfe0648fa
 ```
 
 The downloader checks this SHA-256 before installing the file and refuses to
-replace an existing mismatched file. Manual fallback: obtain the partitioned
-training CSV, place it at `data/UNSW_NB15_training-set.csv`, and run `make data`
-to verify it. An alternate URL serving identical bytes can be passed with
+replace an existing mismatched file. When the CSV is already present, `make data` only verifies it against this
+checksum. The Drive archive contents have not been checksum-verified against
+this mirror; a mismatch should be investigated rather than replacing the file. An alternate URL serving identical bytes can be passed with
 `python -m src.download_data --url URL`. A different legitimate dataset version
 requires documenting its provenance and updating the checksum deliberately.
 Acquisition belongs to setup; reproduction does not download data.

@@ -18,7 +18,8 @@ Fill this in before submitting. The grading agent reads it first.
 ## How to reproduce
 ```bash
 make setup
-make data   # UNSW-NB15 acquisition / checksum verification
+# Download the course Drive archive and extract data/UNSW_NB15_training-set.csv
+# See data/README.md; make data is an optional mirror fallback / checksum check.
 make reproduce
 ```
 Anything non-default the grader must know (data download, runtime):

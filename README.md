@@ -71,13 +71,14 @@ Requesting Mahalanobis with the sklearn baseline raises an error.
 
 Iris is the debugging warm-up. The deliverable uses UNSW-NB15:
 
-```bash
-make data  # downloads and SHA-256 verifies the training CSV; also verifies an existing copy
-```
+Download the [course dataset archive from Google Drive](https://drive.google.com/file/d/1jDsXYALnEsLzYYGCEtxgkAYygS-vKIt7/view?usp=sharing)
+(about 20.6 GB). Extract `UNSW_NB15_training-set.csv` from the archive and
+place it at `data/UNSW_NB15_training-set.csv`. The primary experiment uses
+this partitioned training CSV; it does not require loading the entire archive.
 
 Then set `data.source: csv`, the CSV path, and `data.target: attack_cat`.
 Keep `drop_columns: [id, label]` to exclude the row ID and duplicate binary target.
-See [data/README.md](data/README.md) for provenance and manual acquisition.
+See [data/README.md](data/README.md) for extraction instructions, provenance, and an optional mirror fallback.
 Data acquisition is a setup step; subsequent reproduction needs no network.
 Do not commit this large dataset.
 
