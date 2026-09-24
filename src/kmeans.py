@@ -188,6 +188,8 @@ def build(cfg: dict):
                   n_init=kc.get("n_init", 10), max_iter=kc.get("max_iter", 300),
                   tol=float(kc.get("tol", 1e-4)), seed=cfg["seed"])
     if impl == "sklearn":
+        if kc.get("distance", "euclidean") != "euclidean":
+            raise ValueError("The sklearn baseline supports Euclidean only; use scratch for Mahalanobis.")
         return KMeansReference(**common)
     if impl == "scratch":
         return KMeansScratch(distance=kc.get("distance", "euclidean"),

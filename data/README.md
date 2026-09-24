@@ -53,3 +53,28 @@ data:
 Moustafa, N., & Slay, J. (2015). *UNSW-NB15: A Comprehensive Data Set for Network
 Intrusion Detection Systems.* Military Communications and Information Systems
 Conference (MilCIS), IEEE.
+
+## Reproducible UNSW-NB15 acquisition
+
+After `make setup`, run `make data`. This uses the public CSV mirror at
+https://github.com/Nir-J/ML-Projects/blob/master/UNSW-Network_Packet_Classification/UNSW_NB15_training-set.csv
+because the official UNSW download can redirect to Microsoft sign-in. The mirror
+is not publisher-authenticated; the checksum below identifies the tested course
+copy (175,341 rows, 45 columns including ID and labels):
+
+```
+bec7dd5ec88dc2a0ccc7a07879d338395ed7421750f675fd0339e07dfe0648fa
+```
+
+The downloader checks this SHA-256 before installing the file and refuses to
+replace an existing mismatched file. Manual fallback: obtain the partitioned
+training CSV, place it at `data/UNSW_NB15_training-set.csv`, and run `make data`
+to verify it. An alternate URL serving identical bytes can be passed with
+`python -m src.download_data --url URL`. A different legitimate dataset version
+requires documenting its provenance and updating the checksum deliberately.
+Acquisition belongs to setup; reproduction does not download data.
+
+The balanced cap of 4,000 yields 3,730 observations for this file: 400 in nine
+classes and all 130 Worms. Label-based balancing is explicitly permitted, but
+labels and their duplicates must never be clustering features. Report actual
+counts and recognize the resulting change in class prevalence.

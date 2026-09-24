@@ -1,181 +1,147 @@
-# CSEC 520/620 — Project 2 Template (K-means Clustering)
+# CSEC 520/620 — Project 2: K-means from scratch
 
-Starter repository for **Project 2: K-means Clustering (from scratch)**.
-It enforces the course **reproducibility standard**:
-
-> A grader can recreate your results from your repository in **one command**.
-
-Stack: **Python + NumPy**. No deep-learning framework needed. Minimal setup — a
-plain `venv` and `pip`. Requires Python 3.10+ and `make`.
-
----
-
-## Quick start
+Start with **Python 3.10+**, `make`, and a plain virtual environment:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-# (or just: make setup)
-
-make reproduce        # == python -m src.cluster --config config.yaml
+make setup
+make reproduce
+make test
 ```
 
-Out of the box this clusters the **Iris** dataset (ships with scikit-learn — no
-download) and writes to `results/`: `metrics.json`, `k_selection.png`,
-`clusters.png`, and `confusion_matrix.png`.
-
----
-
-The instructor's Google Drive Iris copy is also included in [`data/iris/`](data/iris/README.md).
-To use those files after setup, run:
+The untouched template runs a working **Euclidean sklearn baseline on Iris**.
+It writes `results/metrics.json` and figures under `results/euclidean/`.
+The instructor's original Iris copy is also bundled in `data/iris/`:
 
 ```bash
-.venv/bin/python -m src.cluster --config configs/iris-local.yaml
+make reproduce CONFIG=configs/iris-local.yaml
 ```
 
-## ⚠️ What you have to write
+Those original files differ from sklearn's Iris at two historical records; see
+[data/iris/README.md](data/iris/README.md). Use the same copy when comparing results.
 
-The template ships with **two** implementations in `src/kmeans.py`:
+## What you implement
 
-| Class | Status | Purpose |
-|---|---|---|
-| `KMeansReference` | ✅ works | Wraps scikit-learn's `KMeans`. Lets the pipeline run before you write code, and acts as a **correctness oracle**. |
-| `KMeansScratch` | ⛔ stubs | **Yours to implement.** This is the assignment. |
+`KMeansReference` is a provided correctness oracle. `KMeansScratch` is your work:
 
-Per the handout, the library version is for *checking your results only*.
-**Your submitted run must use your own implementation.**
+1. `_assign`: nearest-centroid assignment.
+2. `_update`: cluster means, including an explained empty-cluster strategy.
+3. `_init_centroids`: random and kmeans++ initialization.
+4. `fit`: Lloyd iterations, convergence and independent restarts.
+5. `src/distances.py::mahalanobis_sqdist`: positive-diagonal weighted distance.
 
-Implement these, in roughly this order:
+The five pieces remain stubs. Tests for them skip until implemented. Library
+clustering calls belong only in the reference, never your scratch implementation.
 
-1. `src/kmeans.py` → `_assign` — nearest-centroid assignment
-2. `src/kmeans.py` → `_update` — move centroids to cluster means (mind empty clusters)
-3. `src/kmeans.py` → `_init_centroids` — `random` and `kmeans++` seeding
-4. `src/kmeans.py` → `fit` — the Lloyd loop, convergence test, `n_init` restarts
-5. `src/distances.py` → `mahalanobis_sqdist` — the Task 4 extension
-
-Then flip the switch in `config.yaml`:
+After implementing them, edit `config.yaml`:
 
 ```yaml
 kmeans:
-  implementation: scratch     # was: sklearn
+  implementation: scratch
+  mahalanobis_diag: null  # identity weights initially; replace with your chosen positive vector
 ```
 
-### Checking your work
+`mahalanobis_diag` must match the retained numeric features, in the exact order
+recorded as `feature_names` in metrics. All weights must be finite and positive.
+No improvement is expected from identity weights.
+
+## Reproduce the complete comparison
+
+With `implementation: scratch`, **`make reproduce` runs both Euclidean and
+Mahalanobis** on the same prepared sample, k, seed, initialization and restart
+budget. It writes:
+
+```
+results/metrics.json                         # combined record: runs.euclidean / runs.mahalanobis
+results/euclidean/metrics.json               # per-run metrics + config + feature order + weights
+results/euclidean/{k_selection,clusters,confusion_matrix}.png
+results/mahalanobis/metrics.json
+results/mahalanobis/{k_selection,clusters,confusion_matrix}.png
+```
+
+Top-level Euclidean fields are retained for compatibility; use `runs` for the
+report's two-column comparison. Original input configuration is not overwritten.
+A failed run removes the previous aggregate rather than leaving a stale success.
+
+For a single exploratory configuration, use
+`python -m src.cluster --config config.yaml`. Its `kmeans.distance` selects one
+metric; the complete Make target explicitly runs both in scratch mode.
+Requesting Mahalanobis with the sklearn baseline raises an error.
+
+## Dataset setup
+
+Iris is the debugging warm-up. The deliverable uses UNSW-NB15:
 
 ```bash
-make test        # tests for your code SKIP until you implement it, then must pass
-make reproduce   # with compare_to_reference: true, prints agreement vs scikit-learn
-make grade       # the objective harness the grader runs
+make data  # downloads and SHA-256 verifies the training CSV; also verifies an existing copy
 ```
 
-`make reproduce` on the scratch path reports a `reference_check` block:
+Then set `data.source: csv`, the CSV path, and `data.target: attack_cat`.
+Keep `drop_columns: [id, label]` to exclude the row ID and duplicate binary target.
+See [data/README.md](data/README.md) for provenance and manual acquisition.
+Data acquisition is a setup step; subsequent reproduction needs no network.
+Do not commit this large dataset.
 
-```json
-"reference_check": {
-  "scratch_inertia": 139.82, "reference_inertia": 139.82,
-  "inertia_ratio": 1.0, "ari_vs_reference": 1.0
-}
+The balanced sampler uses labels to preserve class coverage; this is a permitted
+sampling design, not permission to use labels as input features. The 4,000 cap
+produces 3,730 rows on this training file (400 per class except 130 Worms). Report
+actual counts and do not interpret the balanced sample as natural traffic prevalence.
+String/numeric multiclass targets are encoded for evaluation. Missing targets,
+non-numeric-only data, and data without usable finite/nonconstant features are
+rejected. Categorical feature columns are excluded unless you add an encoding step.
+
+## Choosing k and interpreting results
+
+The sweep records its scoring geometry. `selection.silhouette_geometry` selects
+`euclidean` (default common space) or `configured`. If the maximum occurs at the
+upper boundary, extend the sweep or justify stopping. Hold k fixed between the
+primary comparison runs; additional k experiments can be reported separately.
+
+- `silhouette_euclidean`: both partitions scored in the same standardized Euclidean space.
+- `silhouette_configured`: each partition scored in its configured geometry.
+- `silhouette`: compatibility alias of `silhouette_euclidean`.
+- V-measure, ARI and NMI: external cluster agreement measures.
+- Accuracy, precision, recall and macro F1: majority-vote mapping fitted and scored
+  on the same sample. These are descriptive agreement, not held-out detection accuracy.
+
+Declare the primary comparison criterion before trying weights. Investigate a
+positive diagonal, seek improvement and explain tradeoffs using feature scales,
+variance or feature groups. Do not compare inertia across distances or claim that
+all scores must improve. Independent validation is needed for generalization claims.
+
+## Correctness checks and grading
+
+```bash
+make test
+make reproduce
+make grade
 ```
 
-`inertia_ratio ≈ 1.0` and `ari_vs_reference ≈ 1.0` mean your implementation found
-the same solution as scikit-learn. That is what you are aiming for.
+With `compare_to_reference: true`, each scratch run compares against sklearn in
+the **same geometry**. For Mahalanobis the reference fits `X * sqrt(diag)`;
+its inertia is comparable to the scratch weighted objective. Ratios/ARI near one
+show agreement. Poor agreement warrants inspecting code, convergence and restart
+budget, not an automatic conclusion that the algorithm is wrong.
 
----
+The grader invokes **`make reproduce` in a fresh temporary output directory**,
+then validates the generated metrics, both scratch runs and their figures. It does
+not accept old results. An untouched baseline is intentionally marked incomplete
+for scratch implementation and comparison requirements. Heuristic checks remain
+subject to instructor review; investigate reference diagnostics with evidence.
 
-## Repository layout
+`OUTPUT_DIR` is an override used by grading, for example:
+`make reproduce OUTPUT_DIR=/tmp/p2-results`. Custom Make workflows must honor it.
 
-```
-├── config.yaml         # all knobs live here (edit this, not the code)
-├── Makefile            # setup / reproduce / test / lint / grade / clean
-├── requirements.txt    # minimal pip dependencies
-├── src/
-│   ├── data.py         # Iris (default) or a CSV such as UNSW-NB15
-│   ├── distances.py    # euclidean (given) + mahalanobis (YOURS)
-│   ├── kmeans.py       # KMeansReference (given) + KMeansScratch (YOURS)
-│   ├── evaluate.py     # internal + external metrics, cluster->class mapping, figures
-│   └── cluster.py      # single entry point: python -m src.cluster
-├── data/               # NOT committed — see data/README.md
-├── results/            # regenerated by `make reproduce`
-├── report/             # your IEEE-format report
-├── tests/              # smoke tests (pytest)
-├── grading/            # agent-gradable: rubric + auto harness + protocol
-└── .github/workflows/  # CI: lint + tests + a sanity reproduce run
-```
+## Deliverables and submission
 
-## Evaluating clusters (see L07)
-
-Clustering is **unsupervised**. `load_data` returns labels, but they are for
-**evaluation only** — never pass them to the clustering algorithm. That would be
-target leakage, and the grader checks for it.
-
-`src/evaluate.py` reports both families:
-
-- **Internal** (no labels): inertia, silhouette, Calinski–Harabasz, Davies–Bouldin.
-- **External** (labels to score only): homogeneity, completeness, V-measure, ARI,
-  NMI, plus a majority-vote cluster→class confusion matrix with
-  accuracy / precision / recall / F1.
-
-## Moving to the real dataset
-
-Iris is a **debugging warm-up**, not the deliverable. Once your implementation
-matches the reference on Iris, switch to **UNSW-NB15** — see `data/README.md`,
-then set in `config.yaml`:
-
-```yaml
-data:
-  source: csv
-  csv_path: data/UNSW_NB15_training-set.csv
-  target: attack_cat
-```
-
-CSV targets may contain numeric or string labels and multiple classes; the loader
-encodes them for evaluation. Missing target labels must be cleaned first. At least
-three finite rows and one non-constant numeric feature must remain after cleaning.
-The subsample cap must accommodate every class. Set the k-sweep below the number
-of usable rows so silhouette scores are defined.
-
-The grading harness reads `metrics.json` from `output.dir` in `config.yaml`.
-If you change that directory, also add it to `.gitignore`. Grading rejects
-non-numeric, non-finite, or out-of-range metrics; silhouette and adjusted Rand
-scores may legitimately be negative.
-
-On a fresh template, `make grade` flags the unimplemented student algorithms and
-`implementation: sklearn`. These are expected assignment-completion checks, not
-setup failures. Five algorithm tests skip until the student fills in the stubs.
-
-## A discussion prompt, free of charge
-
-On standardized Iris the silhouette peaks at **k = 2**, but there are **3** true
-species — two of them overlap heavily. Your report should engage with this:
-internal metrics measure geometry, not ground truth, and the "best" k by
-silhouette need not equal the number of real classes. Expect the same tension on
-UNSW-NB15, where 10 labelled classes rarely form 10 clean geometric clusters.
-
-## Requirements checklist (per the project handout)
-
-- [ ] `make reproduce` runs clean from a fresh environment
-- [ ] `kmeans.implementation: scratch` — results come from YOUR code
-- [ ] K-means written from scratch (no library K-means in `KMeansScratch`)
-- [ ] k chosen with elbow and/or silhouette evidence
-- [ ] Cluster→class evaluation: confusion matrix + accuracy/precision/recall/F1
-- [ ] Labels used for evaluation ONLY
-- [ ] Mahalanobis extension implemented, with a C that beats Euclidean, explained
-- [ ] Report in IEEE format (`report/`), numbers matching `results/metrics.json`
-- [ ] `SUBMISSION.md` filled in
-
-## Submitting
+Write the report in `report/`, fill `SUBMISSION.md`, and match every reported
+comparison to `results/metrics.json`. Describe sampling, k evidence, the chosen
+criterion and diagonal, empty clusters, convergence, reference agreement and limits.
 
 ```bash
 git add -A && git commit -m "p2 final" && git push
 git tag p2-final && git push origin p2-final
 ```
 
-Submit your repository URL and the `p2-final` tag.
-
-## Academic integrity & AI use
-
-Follow the syllabus AI-use policy: assistants are allowed as aids, but acknowledge
-substantive AI use and **do not submit AI-generated implementations of the
-algorithm you were asked to build**. Writing `KMeansScratch` yourself is the point
-of this project.
+Submit your private repository URL, tag and report through the course dropbox.
+Follow the syllabus AI policy: acknowledge substantive assistance and write the
+assigned scratch algorithm yourself.

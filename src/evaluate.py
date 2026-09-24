@@ -20,14 +20,18 @@ from sklearn import metrics as skm
 NAVY, ACCENT, ORANGE, GREEN = "#1F3A5F", "#2E6DA4", "#D9821B", "#4CA36A"
 
 
-def internal_metrics(X: np.ndarray, labels: np.ndarray, inertia: float) -> dict:
+def internal_metrics(X: np.ndarray, labels: np.ndarray, inertia: float, configured_X=None) -> dict:
     out = {"inertia": float(inertia)}
-    if len(np.unique(labels)) > 1:
-        out["silhouette"] = float(skm.silhouette_score(X, labels))
+    valid = 1 < len(np.unique(labels)) < len(X)
+    common = float(skm.silhouette_score(X, labels)) if valid else None
+    configured = (common if configured_X is None else
+                  float(skm.silhouette_score(configured_X, labels)) if valid else None)
+    out.update(silhouette=common, silhouette_euclidean=common,
+               silhouette_configured=configured)
+    if valid:
         out["calinski_harabasz"] = float(skm.calinski_harabasz_score(X, labels))
         out["davies_bouldin"] = float(skm.davies_bouldin_score(X, labels))
-    else:
-        out["silhouette"] = float("nan")
+
     return out
 
 
@@ -71,27 +75,30 @@ def classification_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     }
 
 
-def k_selection_sweep(X, build_fn, k_min: int, k_max: int):
+def k_selection_sweep(X, build_fn, k_min: int, k_max: int, score_X=None):
     """Fit for each k in [k_min, k_max]; return (ks, inertias, silhouettes)."""
+    if not 2 <= k_min <= k_max < len(X):
+        raise ValueError("k sweep must satisfy 2 <= k_min <= k_max < number of usable rows")
+    score_X = X if score_X is None else score_X
     ks, inertias, sils = [], [], []
     for k in range(k_min, k_max + 1):
         est = build_fn(k).fit(X)
         ks.append(k)
         inertias.append(float(est.inertia_))
-        sils.append(float(skm.silhouette_score(X, est.labels_))
-                    if len(np.unique(est.labels_)) > 1 else float("nan"))
+        sils.append(float(skm.silhouette_score(score_X, est.labels_))
+                    if 1 < len(np.unique(est.labels_)) < len(X) else None)
     return ks, inertias, sils
 
 
 # ---------------------------------------------------------------- figures --
-def save_k_selection_plot(ks, inertias, sils, path, chosen_k=None):
+def save_k_selection_plot(ks, inertias, sils, path, chosen_k=None, geometry="euclidean"):
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
     axes[0].plot(ks, inertias, "o-", color=ACCENT)
     axes[0].set_xlabel("k"); axes[0].set_ylabel("inertia (within-cluster SSE)")
     axes[0].set_title("Elbow method", color=NAVY)
     axes[1].plot(ks, sils, "o-", color=GREEN)
     axes[1].set_xlabel("k"); axes[1].set_ylabel("mean silhouette")
-    axes[1].set_title("Silhouette score", color=NAVY)
+    axes[1].set_title(f"Silhouette ({geometry} geometry)", color=NAVY)
     for ax in axes:
         ax.grid(alpha=.3)
         if chosen_k is not None:
@@ -152,4 +159,4 @@ def save_confusion_matrix(y_true, y_pred, path, class_names=None):
 
 def write_metrics(metrics: dict, path: str):
     with open(path, "w") as f:
-        json.dump(metrics, f, indent=2)
+        json.dump(metrics, f, indent=2, allow_nan=False)

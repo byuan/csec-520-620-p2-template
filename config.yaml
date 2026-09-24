@@ -20,6 +20,7 @@ kmeans:
   mahalanobis_diag: null     # positive diagonal C, e.g. [2.0, 1.0, 0.5, 1.0]; null = all ones
 
 selection:                   # k-sweep for the elbow / silhouette figure
+  silhouette_geometry: euclidean  # common space for k selection; or configured
   k_min: 2
   k_max: 8
 

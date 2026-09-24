@@ -18,6 +18,7 @@ Fill this in before submitting. The grading agent reads it first.
 ## How to reproduce
 ```bash
 make setup
+make data   # UNSW-NB15 acquisition / checksum verification
 make reproduce
 ```
 Anything non-default the grader must know (data download, runtime):
@@ -27,9 +28,9 @@ Anything non-default the grader must know (data download, runtime):
 - Initialization used (`random` / `kmeans++`):
 - How you handle **empty clusters**:
 - Convergence criterion and tolerance:
-- Agreement with the reference (`reference_check` in metrics.json):
-  - `inertia_ratio`:
-  - `ari_vs_reference`:
+- Agreement with the reference (each run’s `reference_check` in metrics.json; same geometry):
+  - Euclidean `inertia_ratio` / `ari_vs_reference`:
+  - Mahalanobis `inertia_ratio` / `ari_vs_reference`:
 
 ## Choosing k
 - k you report, and the evidence (elbow / silhouette):
@@ -38,12 +39,16 @@ Anything non-default the grader must know (data download, runtime):
 ## Claimed results (must match `results/metrics.json`)
 | Metric | Euclidean | Mahalanobis |
 |---|---|---|
-| Silhouette | | |
+| Silhouette (common Euclidean) | | |
+| Silhouette (configured geometry) | | |
 | V-measure | | |
 | Accuracy | | |
 | Macro F1 | | |
 
-- The diagonal C you chose, and why:
+- Primary comparison criterion declared before weight experiments:
+- The diagonal C you chose, its feature order, and why:
+- Same sample, k, seed and restart budget across the primary runs: [ ]
+- Tradeoffs and whether any independent validation was used:
 
 ## AI-use acknowledgment
 Per the syllabus policy, briefly note any substantive use of AI assistants.

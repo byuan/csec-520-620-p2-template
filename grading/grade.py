@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,10 +26,14 @@ REQUIRED = ["config.yaml", "src/cluster.py", "src/data.py", "src/kmeans.py",
 # Clustering metrics we expect in results/metrics.json.
 METRIC_KEYS = {"k", "inertia", "silhouette", "v_measure", "accuracy", "f1"}
 UNIT_INTERVAL = {"silhouette", "homogeneity", "completeness", "v_measure",
-                 "nmi", "accuracy", "precision", "recall", "f1"}
+                 "nmi", "accuracy", "precision", "recall", "f1",
+                 "precision_weighted", "recall_weighted", "f1_weighted",
+                 "silhouette_euclidean", "silhouette_configured"}
 
 _venv = ROOT / ".venv" / "bin" / "python"
 PYEXE = str(_venv) if _venv.exists() else sys.executable
+_REPRODUCE_TEMP = None
+_REPRODUCE_OK = None
 
 
 def run(cmd, timeout=900):
@@ -62,7 +67,13 @@ def check_tests():
 
 
 def check_reproduce():
-    rc, out = run([PYEXE, "-m", "src.cluster", "--config", "config.yaml"])
+    global _REPRODUCE_TEMP, _REPRODUCE_OK
+    if _REPRODUCE_TEMP is not None:
+        _REPRODUCE_TEMP.cleanup()
+    _REPRODUCE_TEMP = tempfile.TemporaryDirectory(prefix="p2-grading-")
+    rc, out = run(["make", "reproduce", f"PY={PYEXE}",
+                   f"OUTPUT_DIR={_REPRODUCE_TEMP.name}"])
+    _REPRODUCE_OK = rc == 0
     if rc == 0:
         status = "pass"
     elif "NotImplementedError" in out:
@@ -82,7 +93,10 @@ def _metrics():
         output_dir = cfg["output"]["dir"]
         if not isinstance(output_dir, str) or not output_dir.strip():
             raise ValueError("output.dir must be a non-empty path string")
-        p = ROOT / output_dir / "metrics.json"
+        if _REPRODUCE_OK is False:
+            return None, "reproduction failed; old metrics are not accepted"
+        p = (Path(_REPRODUCE_TEMP.name) if _REPRODUCE_TEMP is not None
+             else ROOT / output_dir) / "metrics.json"
         m = json.loads(p.read_text())
         if not isinstance(m, dict):
             raise ValueError("metrics.json must contain a JSON object")
@@ -92,13 +106,15 @@ def _metrics():
 
 
 def _number(value):
-    return type(value) in (int, float) and math.isfinite(value)
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
 
 
-def check_metrics():
-    m, err = _metrics()
-    if m is None:
-        return {"id": "metrics_present", "status": "fail", "evidence": err}
+def _validate_metrics(m):
+    if not isinstance(m, dict):
+        return {"error": "metrics must be an object"}
     missing = METRIC_KEYS - set(m)
     bad = {}
     for k in (METRIC_KEYS | UNIT_INTERVAL | {"adjusted_rand"}) & m.keys():
@@ -109,7 +125,7 @@ def check_metrics():
                 valid = type(v) is int and v >= 1
             elif k == "inertia":
                 valid = v >= 0
-            elif k in {"silhouette", "adjusted_rand"}:
+            elif k in {"silhouette", "silhouette_euclidean", "silhouette_configured", "adjusted_rand"}:
                 valid = -1 <= v <= 1
             else:
                 valid = 0 <= v <= 1
@@ -117,9 +133,83 @@ def check_metrics():
             bad[k] = repr(v)
     ok = not missing and not bad
     head = {k: m[k] for k in sorted(METRIC_KEYS & set(m))}
-    return {"id": "metrics_present", "status": "pass" if ok else "fail",
-            "evidence": {"metrics": head, "missing_keys": sorted(missing),
-                         "invalid_values": bad}}
+    return {} if ok else {"metrics": head, "missing_keys": sorted(missing), "invalid_values": bad}
+
+
+def check_metrics():
+    m, err = _metrics()
+    if m is None:
+        return {"id": "metrics_present", "status": "fail", "evidence": err}
+    errors = {"summary": _validate_metrics(m)}
+    runs = m.get("runs", {})
+    if not isinstance(runs, dict):
+        errors["runs"] = "runs must be an object"
+    else:
+        errors.update({name: _validate_metrics(record) for name, record in runs.items()})
+    errors = {name: error for name, error in errors.items() if error}
+    return {"id": "metrics_present", "status": "fail" if errors else "pass",
+            "evidence": errors or "numeric metrics valid in summary and every recorded run"}
+
+
+def check_comparison():
+    m, err = _metrics()
+    if m is None:
+        return {"id": "comparison_complete", "status": "fail", "evidence": err}
+    runs = m.get("runs")
+    errors = []
+    if not isinstance(runs, dict) or set(runs) != {"euclidean", "mahalanobis"}:
+        errors.append("both euclidean and mahalanobis runs are required for submission")
+    else:
+        import yaml
+        cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
+        out = Path(_REPRODUCE_TEMP.name) if _REPRODUCE_TEMP is not None else ROOT / cfg['output']['dir']
+        for name, record in runs.items():
+            if not isinstance(record, dict) or record.get('distance') != name or record.get('implementation') != 'scratch':
+                errors.append(f"{name}: expected a correctly labeled scratch run")
+                continue
+            for key in ['silhouette_euclidean', 'silhouette_configured']:
+                v = record.get(key)
+                if not _number(v) or not -1 <= v <= 1:
+                    errors.append(f"{name}: invalid {key}")
+            for filename in ['k_selection.png', 'clusters.png', 'confusion_matrix.png', 'metrics.json']:
+                path = out / name / filename
+                if not path.is_file() or path.stat().st_size == 0:
+                    errors.append(f"{name}: missing {filename}")
+                elif filename.endswith('.png'):
+                    with path.open('rb') as image:
+                        if image.read(8) != b'\x89PNG\r\n\x1a\n':
+                            errors.append(f"{name}: invalid PNG {filename}")
+                else:
+                    try:
+                        if json.loads(path.read_text()) != record:
+                            errors.append(f"{name}: per-run metrics differ from combined metrics")
+                    except (ValueError, OSError):
+                        errors.append(f"{name}: invalid per-run JSON")
+            config = record.get('configuration', {})
+            if not isinstance(config, dict) or not isinstance(config.get('kmeans'), dict):
+                errors.append(f"{name}: missing configuration")
+                continue
+            expected = cfg.get('kmeans', {})
+            recorded = config['kmeans']
+            if config.get('seed') != cfg['seed'] or config.get('data') != cfg['data']:
+                errors.append(f"{name}: data/seed differs from config.yaml")
+            weights = record.get('diagonal_weights')
+            features = record.get('feature_names')
+            if (not isinstance(weights, list) or not isinstance(features, list) or
+                    len(weights) != len(features) or not features or
+                    not all(_number(v) and v > 0 for v in weights)):
+                errors.append(f"{name}: invalid weights or feature order")
+            elif name == 'euclidean' and any(v != 1 for v in weights):
+                errors.append(f"{name}: expected identity weights")
+            elif name == 'mahalanobis':
+                specified = expected.get('mahalanobis_diag')
+                if specified is not None and weights != specified:
+                    errors.append(f"{name}: weights differ from config.yaml")
+            for key in ['k', 'init', 'n_init', 'max_iter', 'tol']:
+                if recorded.get(key) != expected.get(key):
+                    errors.append(f"{name}: {key} differs from config.yaml")
+    return {"id": "comparison_complete", "status": "fail" if errors else "pass",
+            "evidence": errors or "both scratch runs and figures reproduced with matched settings"}
 
 
 def _scratch_class():
@@ -182,12 +272,13 @@ def check_no_library_kmeans_in_scratch():
 
 
 def check_config_uses_scratch():
-    txt = _read(ROOT / "config.yaml")
-    m = re.search(r"^\s*implementation:\s*([A-Za-z_]+)", txt, re.M)
-    impl = m.group(1) if m else None
-    return {"id": "config_uses_scratch",
-            "status": "pass" if impl == "scratch" else "fail",
-            "evidence": f"kmeans.implementation = {impl!r} (must be 'scratch' for submission)"}
+    try:
+        import yaml
+        impl = yaml.safe_load((ROOT / "config.yaml").read_text())["kmeans"]["implementation"]
+    except Exception as e:
+        return {"id": "config_uses_scratch", "status": "fail", "evidence": str(e)}
+    return {"id": "config_uses_scratch", "status": "pass" if impl == "scratch" else "fail",
+            "evidence": f"kmeans.implementation = {impl!r} (must be scratch for submission)"}
 
 
 def check_reference_agreement():
@@ -195,15 +286,22 @@ def check_reference_agreement():
     m, err = _metrics()
     if m is None:
         return {"id": "reference_agreement", "status": "review", "evidence": err}
-    rc = m.get("reference_check")
-    if not isinstance(rc, dict) or not rc:
-        return {"id": "reference_agreement", "status": "review",
-                "evidence": "no reference_check in metrics.json "
-                            "(set compare_to_reference: true to record one)"}
-    ratio, ari = rc.get("inertia_ratio"), rc.get("ari_vs_reference")
-    ok = (_number(ratio) and 0 <= ratio <= 1.10) or (_number(ari) and 0.80 <= ari <= 1)
-    return {"id": "reference_agreement", "status": "pass" if ok else "review",
-            "evidence": rc}
+    runs = m.get("runs", {"single": m})
+    if not isinstance(runs, dict):
+        return {"id": "reference_agreement", "status": "review", "evidence": "invalid runs"}
+    evidence = {}
+    for name, record in runs.items():
+        rc = record.get("reference_check") if isinstance(record, dict) else None
+        if not isinstance(rc, dict):
+            evidence[name] = "reference check missing; enable compare_to_reference"
+            continue
+        ratio, ari = rc.get("inertia_ratio"), rc.get("ari_vs_reference")
+        comparable = rc.get('geometry') == record.get('distance')
+        ok = comparable and ((_number(ratio) and 0 <= ratio <= 1.10) or
+                             (_number(ari) and 0.80 <= ari <= 1))
+        evidence[name] = {"status": "pass" if ok else "review", "reference_check": rc}
+    ok = bool(evidence) and all(isinstance(v, dict) and v['status'] == 'pass' for v in evidence.values())
+    return {"id": "reference_agreement", "status": "pass" if ok else "review", "evidence": evidence}
 
 
 def check_mahalanobis_implemented():
@@ -254,7 +352,7 @@ def check_report():
 def check_git_hygiene():
     txt = _read(ROOT / ".gitignore")
     committed = ([p.name for p in (ROOT / "data").glob("*")
-                  if p.name not in {"README.md", ".gitkeep"}]
+                  if p.name not in {"README.md", ".gitkeep", "iris"}]
                  if (ROOT / "data").exists() else [])
     ok = "data/" in txt and "results/" in txt
     return {"id": "git_hygiene", "status": "pass" if ok else "review",
@@ -263,7 +361,7 @@ def check_git_hygiene():
 
 
 def main():
-    checks = [check_structure(), check_tests(), check_reproduce(), check_metrics(),
+    checks = [check_structure(), check_tests(), check_reproduce(), check_metrics(), check_comparison(),
               check_config_uses_scratch(), check_scratch_implemented(),
               check_no_library_kmeans_in_scratch(), check_reference_agreement(),
               check_mahalanobis_implemented(), check_label_leakage(),

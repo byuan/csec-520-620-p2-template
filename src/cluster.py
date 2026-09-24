@@ -1,7 +1,7 @@
-"""Single entry point: `python -m src.cluster --config config.yaml`.
+"""Single-run exploration: `python -m src.cluster --config config.yaml`.
 
-Reproducibility standard: this command must recreate your reported results.
-It writes results/metrics.json and figures to the output directory.
+Use `make reproduce` for the complete two-distance submission workflow.
+This module writes one run’s metrics and figures to its output directory.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import yaml
 from .data import load_data
 from . import kmeans as km
 from . import evaluate as ev
+from .geometry import diagonal_weights
 
 
 def set_seed(seed: int):
@@ -23,15 +24,21 @@ def set_seed(seed: int):
     np.random.seed(seed)
 
 
-def main(config_path: str):
+def main(config_path: str, output_dir=None):
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
+    if output_dir is not None:
+        cfg["output"]["dir"] = output_dir
+    return run_experiment(cfg, load_data(cfg))
+
+
+def run_experiment(cfg, data):
     set_seed(cfg["seed"])
     out = cfg["output"]["dir"]
     os.makedirs(out, exist_ok=True)
-
-    # ---- data (labels are for EVALUATION ONLY) ---------------------------
-    X, y, feature_names, class_names = load_data(cfg)
+    X, y, feature_names, class_names = data
+    weights = diagonal_weights(cfg, X.shape[1])
+    configured_X = X * np.sqrt(weights)
     impl = cfg["kmeans"].get("implementation", "sklearn")
     print(f"Loaded {X.shape[0]} points x {X.shape[1]} features "
           f"({cfg['data']['source']}); implementation={impl}")
@@ -45,11 +52,20 @@ def main(config_path: str):
         c["kmeans"]["k"] = k
         return km.build(c)
 
-    ks, inertias, sils = ev.k_selection_sweep(X, build_k, k_min, k_max)
+    geometry = sel.get("silhouette_geometry", "euclidean")
+    if geometry not in {"euclidean", "configured"}:
+        raise ValueError("selection.silhouette_geometry must be euclidean or configured")
+    score_X = X if geometry == "euclidean" else configured_X
+    ks, inertias, sils = ev.k_selection_sweep(X, build_k, k_min, k_max, score_X)
     ev.save_k_selection_plot(ks, inertias, sils,
                              os.path.join(out, "k_selection.png"),
-                             chosen_k=cfg["kmeans"]["k"])
-    best_k_by_silhouette = int(ks[int(np.nanargmax(sils))])
+                             chosen_k=cfg["kmeans"]["k"], geometry=geometry)
+    valid_scores = [(score, k) for k, score in zip(ks, sils) if score is not None]
+    if not valid_scores:
+        raise ValueError("No valid silhouette scores; check data diversity and the k sweep")
+    best_k_by_silhouette = max(valid_scores, key=lambda pair: pair[0])[1]
+    if best_k_by_silhouette == k_max:
+        print("Note: best silhouette is at the upper boundary; extend the sweep or justify stopping.")
     print(f"k sweep {k_min}..{k_max}: best silhouette at k={best_k_by_silhouette}")
 
     # ---- fit at the configured k -----------------------------------------
@@ -65,9 +81,14 @@ def main(config_path: str):
         "n_features": int(X.shape[1]),
         "n_iter": int(est.n_iter_) if est.n_iter_ is not None else None,
         "best_k_by_silhouette": best_k_by_silhouette,
-        "k_sweep": {"k": ks, "inertia": inertias, "silhouette": sils},
+        "k_sweep": {"k": ks, "inertia": inertias, "silhouette": sils,
+                    "silhouette_geometry": geometry},
+        "configuration": cfg,
+        "feature_names": feature_names,
+        "diagonal_weights": weights.tolist(),
+        "evaluation_note": "Majority-vote metrics describe in-sample cluster agreement, not held-out detection performance.",
     }
-    metrics.update(ev.internal_metrics(X, labels, est.inertia_))
+    metrics.update(ev.internal_metrics(X, labels, est.inertia_, configured_X))
     metrics.update(ev.external_metrics(y, labels))
 
     mapping, y_pred = ev.map_clusters_to_classes(y, labels)
@@ -87,9 +108,10 @@ def main(config_path: str):
                                  n_init=cfg["kmeans"].get("n_init", 10),
                                  max_iter=cfg["kmeans"].get("max_iter", 300),
                                  tol=float(cfg["kmeans"].get("tol", 1e-4)),
-                                 seed=cfg["seed"]).fit(X)
+                                 seed=cfg["seed"]).fit(configured_X)
         from sklearn.metrics import adjusted_rand_score
         metrics["reference_check"] = {
+            "geometry": cfg["kmeans"].get("distance", "euclidean"),
             "reference_inertia": float(ref.inertia_),
             "scratch_inertia": float(est.inertia_),
             "inertia_ratio": float(est.inertia_ / ref.inertia_) if ref.inertia_ else None,
@@ -103,9 +125,12 @@ def main(config_path: str):
                ("k", "inertia", "silhouette", "v_measure", "accuracy", "f1")
                if k in metrics}
     print(json.dumps(summary, indent=2))
+    return metrics
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.yaml")
-    main(ap.parse_args().config)
+    ap.add_argument("--output-dir")
+    args = ap.parse_args()
+    main(args.config, args.output_dir)

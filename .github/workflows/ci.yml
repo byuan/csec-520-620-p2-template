@@ -16,4 +16,4 @@ jobs:
         # Tests covering YOUR implementation skip until you write it, then must pass.
         run: python -m pytest -q
       - name: Reproduce (sanity run)
-        run: python -m src.cluster --config config.yaml
+        run: make reproduce PY=python

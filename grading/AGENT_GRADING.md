@@ -39,20 +39,25 @@ If `config_uses_scratch` or `scratch_implemented` fails, `scratch_correctness`
 1. **Set up the environment:** `pip install -r requirements.txt` (or `make setup`).
    If a dependency cannot be installed, say so explicitly rather than penalizing blindly.
 2. **Run the harness:** `python grading/grade.py`, then read `grading/auto_report.json`.
+   The harness executes `make reproduce` with a fresh `OUTPUT_DIR`; inspect `comparison_complete`
+   for both scratch runs and figures. Custom reproduction targets must honor that override.
    `dep_missing` means *your* env lacked something — fix and re-run before scoring
    reproducibility down.
 3. **Read `src/kmeans.py` and `src/distances.py`.** Confirm the algorithm is real:
    an assignment step, a mean-based update, a convergence test, restarts, and
    sane empty-cluster handling. Check `reference_agreement` — `inertia_ratio` near
    1.0 and high `ari_vs_reference` are strong evidence of correctness; a much
-   worse inertia suggests a buggy loop or bad initialization.
-4. **Check evaluation validity.** Labels must be used only to score. Confirm
-   k-selection evidence exists (`results/k_selection.png`, `k_sweep` in metrics).
+   worse inertia warrants examining code, initialization, convergence and restart budget.
+   Weighted comparisons must use the transformed reference in the same geometry.
+4. **Check evaluation validity.** Labels may be used for the documented balanced sample and scoring, but never as clustering features. Confirm
+   k-selection evidence exists (per-distance `k_selection.png`, `runs.<distance>.k_sweep` in metrics).
    Review `label_leakage_scan` hits by reading the code.
 5. **Read the report** in `report/` and `SUBMISSION.md`. Verify claimed numbers
    **match** `results/metrics.json`. For the Mahalanobis discussion, check the
    student compared on a *valid* basis — inertia is not comparable across metrics,
-   so a comparison resting only on inertia is a real analytical error.
+   so a comparison resting only on cross-metric inertia is a real analytical error.
+   Require explicit silhouette geometry and descriptive in-sample interpretation. Reward a
+   predeclared criterion, matched settings, and justified tradeoffs; universal improvement is not required.
 6. **Score every criterion** in `rubric.yaml`, citing evidence (a file, a check id,
    a line) in each justification.
 7. **Emit outputs:** `grading/grade.json` and a readable `grading/grade_report.md`.
@@ -93,6 +98,6 @@ per-criterion score with justification, what went well, and prioritized fixes.
 
 ## Notes
 
-- `grade.py` uses only the Python standard library and is safe to run.
+- `grade.py` needs PyYAML and executes submission code via tests and make reproduce; run submissions in an isolated environment.
 - The rubric weights sum to 100; keep each criterion's `score` within its `max`.
 - For a batch, repeat this procedure per repo and emit one `grade.json` each.

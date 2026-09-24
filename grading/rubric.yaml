@@ -12,9 +12,9 @@ criteria:
     max_points: 20
     check: both
     guidance: >
-      `make reproduce` (or `python -m src.cluster --config config.yaml`) runs from a
+      `make reproduce` (or `python -m src.reproduce --config config.yaml`) runs from a
       clean environment and writes results/metrics.json plus figures, with no manual
-      intervention. See auto checks: reproduce_runs, metrics_present.
+      intervention. See auto checks: reproduce_runs, metrics_present, comparison_complete.
 
   - id: scratch_correctness
     title: From-scratch K-means correctness
@@ -36,8 +36,8 @@ criteria:
     guidance: >
       Sound k-selection evidence (elbow and/or silhouette). Valid cluster->class
       evaluation: majority-vote mapping, confusion matrix, accuracy/precision/recall/F1
-      and/or homogeneity/completeness/V-measure/silhouette. Labels must be used ONLY
-      for evaluation, never as input to clustering (that is target leakage).
+      and/or homogeneity/completeness/V-measure/silhouette. Labels may support the documented class-balanced sampling design and
+      evaluation, but never be input features to clustering.
       See auto checks: metrics_present, label_leakage_scan.
 
   - id: discussion
@@ -45,8 +45,9 @@ criteria:
     max_points: 10
     check: agent
     guidance: >
-      Implements the simplified (positive-diagonal) Mahalanobis distance, finds a C
-      that beats plain Euclidean, and explains WHY in terms of feature scale/variance.
+      Implements the simplified (positive-diagonal) Mahalanobis distance, declares a primary criterion before weight experiments, seeks improvement,
+      and explains results/tradeoffs in terms of feature scale/variance. Hold
+      sample, k, seed and restart budget fixed. Do not require every metric to improve.
       Evidence-based comparison, not just a table. Note that inertia is not comparable
       across different metrics — a good answer compares label-based or silhouette
       evidence instead. See auto check: mahalanobis_implemented.

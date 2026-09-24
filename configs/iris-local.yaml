@@ -16,6 +16,7 @@ kmeans:
   distance: euclidean
   mahalanobis_diag: null
 selection:
+  silhouette_geometry: euclidean  # common space for k selection; or configured
   k_min: 2
   k_max: 8
 compare_to_reference: true
